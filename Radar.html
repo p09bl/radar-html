@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <title>AERIS: Continuous High-Pressure Simulation</title>
+    <style>
+        body { background-color: #010a01; color: #00ff41; font-family: 'Segoe UI', Tahoma, sans-serif; margin: 0; overflow: hidden; }
+        #panel { 
+            position: absolute; top: 20px; right: 20px; width: 340px; 
+            background: rgba(0, 15, 0, 0.95); border: 2px solid #00ff41; 
+            padding: 15px; border-radius: 8px; z-index: 100; box-shadow: 0 0 20px rgba(0,255,0,0.1);
+        }
+        .stat { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 0.9em; border-bottom: 1px solid #003300; }
+        .mode-indicator { font-weight: bold; padding: 3px 10px; border-radius: 4px; }
+        .m-manual { background: #400; color: #f33; }
+        .m-ria { background: #040; color: #0f4; }
+        .m-rest { background: #024; color: #0df; animation: pulse 2s infinite; }
+        
+        /* دليل الألوان */
+        .legend { margin-top: 15px; font-size: 0.8em; border-top: 1px solid #00ff41; padding-top: 10px; }
+        .legend-item { display: flex; align-items: center; margin-bottom: 5px; }
+        .dot { width: 12px; height: 12px; border-radius: 50%; margin-left: 10px; }
+
+        button { 
+            width: 100%; padding: 10px; margin-top: 5px; cursor: pointer;
+            background: #002200; color: #00ff41; border: 1px solid #00ff41; font-weight: bold;
+        }
+        button:hover { background: #00ff41; color: #000; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+    </style>
+</head>
+<body>
+
+<div id="panel">
+    <div style="font-weight: bold; font-size: 1.2em; margin-bottom: 10px; text-align: center;">نظام AERIS للمراقبة الجوية</div>
+    <div class="stat"><span>الوضع الحالي:</span> <span id="tag" class="mode-indicator m-manual">تحكم يدوي</span></div>
+    <div class="stat"><span>عدد الطائرات:</span> <span id="ac-count">20</span></div>
+
+    <button onclick="setMode('MANUAL')">الوضع اليدوي</button>
+    <button onclick="setMode('RIA')">وضع المساعد (RIA)</button>
+    <button onclick="setMode('REST')" style="border-color:#0df; color:#0df;">وضع الاستراحة (كامل)</button>
+
+    <div class="legend">
+        <strong>دليل رموز الرادار:</strong>
+        <div class="legend-item"><div class="dot" style="background:#00ff41;"></div> حركة اعتيادية آمنة</div>
+        <div class="legend-item"><div class="dot" style="background:#ff0000;"></div> خطر تصادم (تنبيه يدوي)</div>
+        <div class="legend-item"><div class="dot" style="background:#ffaa00;"></div> تعارض تم حله بواسطة الروبوت</div>
+        <div class="legend-item"><div class="dot" style="background:#ff00ff;"></div> طوارئ طبية (أولوية قصوى)</div>
+        <div class="legend-item"><div class="dot" style="background:#ffffff;"></div> فشل اتصال (NORDO)</div>
+        <div class="legend-item"><div class="dot" style="background:#00d1ff;"></div> وضع الاستراحة (تحكم آلي)</div>
+    </div>
+</div>
+
+<canvas id="radar"></canvas>
+
+<script>
+const canvas = document.getElementById('radar');
+const ctx = canvas.getContext('2d');
+let currentMode = 'MANUAL';
+let aircrafts = [];
+const center = { x: 0, y: 0 };
+
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+center.x = canvas.width / 2;
+center.y = canvas.height / 2;
+
+class Aircraft {
+    constructor() {
+        this.init();
+    }
+    init() {
+        // توليد عشوائي من أطراف الشاشة لضمان حركة مستمرة
+        const angle = Math.random() * Math.PI * 2;
+        const radius = Math.max(canvas.width, canvas.height) / 2;
+        this.x = center.x + Math.cos(angle) * radius;
+        this.y = center.y + Math.sin(angle) * radius;
+        
+        this.id = "FL" + Math.floor(100 + Math.random() * 899);
+        this.speed = 0.15 + Math.random() * 0.2;
+        this.updateHeading();
+        this.alt = Math.floor(12 + Math.random() * 20) * 1000;
+        
+        // حالات خاصة
+        const rand = Math.random();
+        this.isEmergency = rand > 0.95; // 5% طوارئ
+        this.isCommsFail = rand < 0.05; // 5% فشل اتصال
+    }
+    updateHeading() {
+        const angleToCenter = Math.atan2(center.y - this.y, center.x - this.x);
+        this.vx = Math.cos(angleToCenter) * this.speed;
+        this.vy = Math.sin(angleToCenter) * this.speed;
+    }
+    update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        // إذا وصلت للمركز أو خرجت، تعود فوراً من طرف آخر (حركة لا تتوقف)
+        if(Math.hypot(this.x - center.x, this.y - center.y) < 20) this.init();
+    }
+}
+
+// إنشاء 20 طائرة لمحاكاة ضغط شديد
+for(let i=0; i<20; i++) aircrafts.push(new Aircraft());
+
+function setMode(m) {
+    currentMode = m;
+    const tag = document.getElementById('tag');
+    tag.innerText = m === 'MANUAL' ? 'تحكم يدوي' : (m === 'RIA' ? 'مساعد ذكي' : 'أتمتة كاملة');
+    tag.className = 'mode-indicator ' + (m === 'MANUAL' ? 'm-manual' : (m === 'RIA' ? 'm-ria' : 'm-rest'));
+}
+
+function draw() {
+    ctx.fillStyle = currentMode === 'REST' ? "rgba(0, 5, 15, 0.2)" : "rgba(1, 8, 1, 0.2)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // الدوائر الرادارية
+    ctx.strokeStyle = currentMode === 'REST' ? "#002d4d" : "#002200";
+    for(let i=1; i<9; i++) {
+        ctx.beginPath(); ctx.arc(center.x, center.y, i * 75, 0, Math.PI * 2); ctx.stroke();
+    }
+
+    aircrafts.forEach((ac, i) => {
+        ac.update();
+        let conflict = false;
+
+        aircrafts.forEach((ac2, j) => {
+            if(i !== j) {
+                const d = Math.hypot(ac.x - ac2.x, ac.y - ac2.y);
+                if(d < 65) {
+                    conflict = true;
+                    if(currentMode === 'REST') {
+                        // دفع الطائرات بعيداً آلياً
+                        ac.vx += (ac.x - ac2.x) * 0.001;
+                        ac.vy += (ac.y - ac2.y) * 0.001;
+                    } else if (currentMode === 'RIA') {
+                        // رسم خطوط التنبؤ
+                        ctx.strokeStyle = "#ffaa00";
+                        ctx.setLineDash([4, 4]);
+                        ctx.beginPath(); ctx.moveTo(ac.x, ac.y); ctx.lineTo(ac.x - ac.vx * 100, ac.y - ac.vy * 100); ctx.stroke();
+                        ctx.setLineDash([]);
+                    }
+                }
+            }
+        });
+
+        // تحديد اللون بناءً على الحالة
+        if(currentMode === 'REST') ctx.fillStyle = "#00d1ff";
+        else if(ac.isEmergency) ctx.fillStyle = "#ff00ff"; // بنفسجي
+        else if(ac.isCommsFail) ctx.fillStyle = "#ffffff"; // أبيض
+        else if(conflict) ctx.fillStyle = currentMode === 'RIA' ? "#ffaa00" : "#ff0000"; // أصفر (RIA) أو أحمر (يدوي)
+        else ctx.fillStyle = "#00ff41"; // أخضر
+
+        // رسم الطائرة وبياناتها
+        ctx.beginPath(); ctx.arc(ac.x, ac.y, 4, 0, Math.PI*2); ctx.fill();
+        ctx.font = "10px Monospace";
+        ctx.fillText(ac.id, ac.x + 8, ac.y - 5);
+        ctx.fillText(ac.alt + "ft", ac.x + 8, ac.y + 10);
+    });
+
+    requestAnimationFrame(draw);
+}
+
+draw();
+</script>
+</body>
+</html>
